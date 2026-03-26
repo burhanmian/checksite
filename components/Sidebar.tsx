@@ -3,11 +3,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Plane, Bell, MapPin, BarChart2, Radio,
-  Zap, Shield, Globe,
+  Zap, Shield, Globe, Map,
 } from 'lucide-react';
 
 const nav = [
   { href: '/',         label: 'Overview',         icon: Globe },
+  { href: '/map',      label: 'Live Geo Map',      icon: Map },
   { href: '/flights',  label: 'Live Flights',      icon: Plane },
   { href: '/alerts',   label: 'Alerts',            icon: Bell },
   { href: '/airport',  label: 'Airport Intel',     icon: Radio },
