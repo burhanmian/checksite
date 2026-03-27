@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 800);
     const res = await fetch(urls[type] ?? urls.sigmet, { signal: controller.signal, cache: 'no-store' });
     clearTimeout(timeout);
 

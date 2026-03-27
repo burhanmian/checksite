@@ -14,7 +14,7 @@ const SIM_ALERTS = [
 export async function GET() {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), 800);
 
     const res = await fetch('https://api.weather.gov/alerts/active?status=actual&message_type=alert&urgency=Immediate,Expected&severity=Extreme,Severe,Moderate', {
       headers: { 'User-Agent': 'SkyWatch/1.0 (contact@skywatch.app)', Accept: 'application/geo+json' },

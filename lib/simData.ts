@@ -5,6 +5,19 @@
  * On Vercel/real deployments the real APIs are always tried first.
  */
 
+// ─── In-memory cache (15 s TTL) ──────────────────────────────────────────────
+// Prevents re-running the full simulation on every API call within the same cycle.
+const cache = new Map<string, { ts: number; data: unknown }>();
+const CACHE_TTL = 15_000; // ms
+
+function cached<T>(key: string, fn: () => T): T {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < CACHE_TTL) return entry.data as T;
+  const data = fn();
+  cache.set(key, { ts: Date.now(), data });
+  return data;
+}
+
 // ─── Airport database ────────────────────────────────────────────────────────
 export const SIM_AIRPORTS = [
   { icao: 'KJFK', iata: 'JFK', name: 'John F. Kennedy Intl', city: 'New York',      lat: 40.6413, lon: -73.7781, tz: -5 },
@@ -65,7 +78,8 @@ function seededRand(seed: number): () => number {
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 
 // ─── Generate live aircraft ───────────────────────────────────────────────────
-export function generateLiveFlights(count = 180) {
+export function generateLiveFlights(count = 180) { return cached(`flights-${count}`, () => _generateLiveFlights(count)); }
+function _generateLiveFlights(count = 180) {
   const now = Date.now();
   const cycleMs = 15000; // matches frontend poll interval
   const t = (now % cycleMs) / cycleMs; // 0→1 within current cycle
@@ -139,7 +153,8 @@ const WEATHER_SCENARIOS = [
   { fltcat: 'IFR',  temp: 12, wspd: 35, visib: 3,    cover: 'BKN010CB',   wx: 'TSRA',       altim: 29.20, desc: 'Thunderstorm' },
 ];
 
-export function generateMETARs() {
+export function generateMETARs() { return cached('metars', () => _generateMETARs()); }
+function _generateMETARs() {
   const now = Date.now();
   return SIM_AIRPORTS.map((apt, i) => {
     const rand = seededRand(i * 7919 + Math.floor(now / 3600000)); // changes hourly
@@ -182,7 +197,8 @@ const DELAY_PROGRAMS = [
   { type: 'Departure Delay', Reason: 'Staffing — TSA checkpoint closures', MinDelay: '30 minutes', MaxDelay: '90 minutes', AvgDelay: '55 minutes' },
 ];
 
-export function generateAirportStatus() {
+export function generateAirportStatus() { return cached('airport-status', () => _generateAirportStatus()); }
+function _generateAirportStatus() {
   const now = Date.now();
   const rand = seededRand(Math.floor(now / 1800000)); // changes every 30 min
   const numDelayed = Math.floor(rand() * 4) + 2; // 2-5 airports delayed
@@ -213,7 +229,8 @@ const SIGMET_AREAS = [
   'AREA FROM 30N090W TO 30N080W TO 40N080W TO 40N090W TO 30N090W',
 ];
 
-export function generateSIGMETs() {
+export function generateSIGMETs() { return cached('sigmets', () => _generateSIGMETs()); }
+function _generateSIGMETs() {
   const now = Date.now();
   const rand = seededRand(Math.floor(now / 7200000)); // changes every 2h
   const count = Math.floor(rand() * 4) + 2;
@@ -243,7 +260,8 @@ export function generateSIGMETs() {
 }
 
 // ─── Generate AIRMETs ─────────────────────────────────────────────────────────
-export function generateAIRMETs() {
+export function generateAIRMETs() { return cached('airmets', () => _generateAIRMETs()); }
+function _generateAIRMETs() {
   const now = Date.now();
   return [
     {
@@ -271,7 +289,8 @@ export function generateAIRMETs() {
 const TURB_LEVELS = ['NEG', 'SMTH-LGT', 'LGT', 'LGT-MOD', 'MOD', 'MOD-SEV', 'SEV'];
 const ICE_LEVELS  = ['NEG', 'TRACE', 'TRACE-LGT', 'LGT', 'LGT-MOD', 'MOD'];
 
-export function generatePIREPs() {
+export function generatePIREPs() { return cached('pireps', () => _generatePIREPs()); }
+function _generatePIREPs() {
   const now = Date.now();
   const pireps = [];
   for (let i = 0; i < 30; i++) {

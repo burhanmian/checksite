@@ -7,7 +7,7 @@ import AnimatedCounter from '@/components/AnimatedCounter';
 import DataSourceBadge from '@/components/DataSourceBadge';
 import {
   Plane, AlertTriangle, TrendingUp, CheckCircle,
-  XCircle, Clock,
+  XCircle, Clock, Bot, RefreshCw,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -80,6 +80,42 @@ export default function OverviewPage() {
   const [lastUpdate, setLastUpdate] = useState('');
   const [flightSource, setFlightSource] = useState('');
   const [metarSource, setMetarSource] = useState('');
+  const [aiBriefing, setAiBriefing] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const fetchBriefing = useCallback(async (
+    flights: FlightState[], metars: MetarEntry[], airportStatus: AirportStatusEntry[]
+  ) => {
+    setAiLoading(true);
+    setAiBriefing('');
+    try {
+      const sigRes = await fetch('/api/notams?type=sigmet');
+      const sigJson = await sigRes.json().catch(() => ({ data: [] }));
+      const nwsRes = await fetch('/api/nws-alerts');
+      const nwsJson = await nwsRes.json().catch(() => ({ data: [] }));
+
+      const res = await fetch('/api/ai-briefing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flights, metars, airportStatus,
+          sigmets: sigJson.data ?? [],
+          nwsAlerts: nwsJson.data ?? [],
+        }),
+      });
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let text = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        setAiBriefing(text);
+      }
+    } catch { /* silent */ }
+    finally { setAiLoading(false); }
+  }, []);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -92,15 +128,20 @@ export default function OverviewPage() {
       const [mJson, sJson, fJson] = await Promise.all([
         mRes.json(), sRes.json(), fRes.json(),
       ]);
-      setMetars(Array.isArray(mJson.data) ? mJson.data : []);
-      setAirportStatus(Array.isArray(sJson.data) ? sJson.data : []);
-      setFlights(Array.isArray(fJson.flights) ? fJson.flights : []);
+      const newMetars = Array.isArray(mJson.data) ? mJson.data : [];
+      const newStatus = Array.isArray(sJson.data) ? sJson.data : [];
+      const newFlights = Array.isArray(fJson.flights) ? fJson.flights : [];
+      setMetars(newMetars);
+      setAirportStatus(newStatus);
+      setFlights(newFlights);
       setFlightSource(fJson.source ?? '');
       setMetarSource(mJson.source ?? '');
       setLastUpdate(new Date().toLocaleTimeString());
+      // Refresh AI briefing every 5 minutes (not every 30s poll)
+      setAiBriefing(prev => { if (!prev) fetchBriefing(newFlights, newMetars, newStatus); return prev; });
     } catch { /* silent */ }
     finally { setRefreshing(false); }
-  }, []);
+  }, [fetchBriefing]);
 
   useEffect(() => {
     load();
@@ -153,6 +194,39 @@ export default function OverviewPage() {
             <KPICard icon={<AlertTriangle size={18} style={{ color: '#ef4444' }} />} label="IFR / LIFR Airports" value={ifrCount} sub="low visibility ops" color="rgba(239,68,68,0.1)" glow="rgba(239,68,68,0.15)" delay="fade-in-2" />
             <KPICard icon={<Clock size={18} style={{ color: '#f59e0b' }} />} label="Delay Programs" value={activeDelays} sub="FAA active programs" color="rgba(245,158,11,0.1)" glow="rgba(245,158,11,0.15)" delay="fade-in-3" />
             <KPICard icon={<TrendingUp size={18} style={{ color: '#10b981' }} />} label="On Ground" value={onGround} sub="gates & taxiways" color="rgba(16,185,129,0.1)" glow="rgba(16,185,129,0.15)" delay="fade-in-4" />
+          </div>
+
+          {/* AI Briefing Panel */}
+          <div className="card p-5 mb-6 fade-in-2" style={{ borderLeft: '3px solid #8b5cf6' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.15)' }}>
+                  <Bot size={14} style={{ color: '#8b5cf6' }} />
+                </div>
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#8b5cf6' }}>AI NAS Briefing</span>
+                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa' }}>Claude Opus 4.6</span>
+              </div>
+              <button
+                onClick={() => fetchBriefing(flights, metars, airportStatus)}
+                disabled={aiLoading}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg transition-opacity"
+                style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa', opacity: aiLoading ? 0.5 : 1 }}
+              >
+                <RefreshCw size={11} className={aiLoading ? 'animate-spin' : ''} />
+                {aiLoading ? 'Analyzing…' : 'Refresh'}
+              </button>
+            </div>
+            <div className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)', minHeight: 64 }}>
+              {aiLoading && !aiBriefing && (
+                <span className="flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 pulse-dot" />
+                  Analyzing NAS conditions with Claude Opus 4.6…
+                </span>
+              )}
+              {aiBriefing ? aiBriefing.replace(/\*\*(.*?)\*\*/g, '$1') : (!aiLoading &&
+                <span style={{ color: 'var(--text-muted)' }}>Loading data before generating briefing…</span>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
