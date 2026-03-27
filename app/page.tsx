@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import AlertTicker from '@/components/AlertTicker';
+import AnimatedCounter from '@/components/AnimatedCounter';
+import DataSourceBadge from '@/components/DataSourceBadge';
 import {
   Plane, AlertTriangle, TrendingUp, CheckCircle,
   XCircle, Clock,
@@ -76,6 +78,8 @@ export default function OverviewPage() {
   const [flights, setFlights] = useState<FlightState[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState('');
+  const [flightSource, setFlightSource] = useState('');
+  const [metarSource, setMetarSource] = useState('');
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -91,6 +95,8 @@ export default function OverviewPage() {
       setMetars(Array.isArray(mJson.data) ? mJson.data : []);
       setAirportStatus(Array.isArray(sJson.data) ? sJson.data : []);
       setFlights(Array.isArray(fJson.flights) ? fJson.flights : []);
+      setFlightSource(fJson.source ?? '');
+      setMetarSource(mJson.source ?? '');
       setLastUpdate(new Date().toLocaleTimeString());
     } catch { /* silent */ }
     finally { setRefreshing(false); }
@@ -134,12 +140,19 @@ export default function OverviewPage() {
         />
         <main className="flex-1 overflow-y-auto p-6 grid-bg">
 
+          {/* Data source badges */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Data sources:</span>
+            <DataSourceBadge source={flightSource} />
+            <DataSourceBadge source={metarSource} />
+          </div>
+
           {/* KPI Row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <KPICard icon={<Plane size={18} style={{ color: '#3b82f6' }} />} label="Airborne Now" value={airborne.toLocaleString()} sub="in tracked region" color="rgba(59,130,246,0.1)" glow="rgba(59,130,246,0.15)" />
-            <KPICard icon={<AlertTriangle size={18} style={{ color: '#ef4444' }} />} label="IFR / LIFR Airports" value={ifrCount} sub="low visibility ops" color="rgba(239,68,68,0.1)" glow="rgba(239,68,68,0.15)" />
-            <KPICard icon={<Clock size={18} style={{ color: '#f59e0b' }} />} label="Delay Programs" value={activeDelays} sub="FAA active programs" color="rgba(245,158,11,0.1)" glow="rgba(245,158,11,0.15)" />
-            <KPICard icon={<TrendingUp size={18} style={{ color: '#10b981' }} />} label="On Ground" value={onGround.toLocaleString()} sub="gates & taxiways" color="rgba(16,185,129,0.1)" glow="rgba(16,185,129,0.15)" />
+            <KPICard icon={<Plane size={18} style={{ color: '#3b82f6' }} />} label="Airborne Now" value={airborne} sub="in tracked region" color="rgba(59,130,246,0.1)" glow="rgba(59,130,246,0.15)" delay="fade-in-1" />
+            <KPICard icon={<AlertTriangle size={18} style={{ color: '#ef4444' }} />} label="IFR / LIFR Airports" value={ifrCount} sub="low visibility ops" color="rgba(239,68,68,0.1)" glow="rgba(239,68,68,0.15)" delay="fade-in-2" />
+            <KPICard icon={<Clock size={18} style={{ color: '#f59e0b' }} />} label="Delay Programs" value={activeDelays} sub="FAA active programs" color="rgba(245,158,11,0.1)" glow="rgba(245,158,11,0.15)" delay="fade-in-3" />
+            <KPICard icon={<TrendingUp size={18} style={{ color: '#10b981' }} />} label="On Ground" value={onGround} sub="gates & taxiways" color="rgba(16,185,129,0.1)" glow="rgba(16,185,129,0.15)" delay="fade-in-4" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -290,16 +303,18 @@ export default function OverviewPage() {
   );
 }
 
-function KPICard({ icon, label, value, sub, color, glow }: {
-  icon: React.ReactNode; label: string; value: string | number; sub: string; color: string; glow: string;
+function KPICard({ icon, label, value, sub, color, glow, delay }: {
+  icon: React.ReactNode; label: string; value: number; sub: string; color: string; glow: string; delay?: string;
 }) {
   return (
-    <div className="card p-5 flex flex-col gap-2" style={{ boxShadow: `0 0 20px ${glow}` }}>
+    <div className={`card p-5 flex flex-col gap-2${delay ? ` ${delay}` : ''}`} style={{ boxShadow: `0 0 20px ${glow}` }}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>{label}</span>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: color }}>{icon}</div>
       </div>
-      <div className="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>{value}</div>
+      <div className="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
+        <AnimatedCounter value={value} />
+      </div>
       <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{sub}</div>
     </div>
   );

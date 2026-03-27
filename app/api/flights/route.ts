@@ -1,9 +1,9 @@
 // OpenSky Network — free, no API key required
-// Returns real-time flight state vectors for a geographic bounding box
+// Falls back to live simulation engine when external API is unreachable
 import { NextRequest, NextResponse } from 'next/server';
+import { generateLiveFlights } from '@/lib/simData';
 
 export const runtime = 'nodejs';
-export const revalidate = 15; // cache for 15 seconds
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -13,20 +13,16 @@ export async function GET(req: NextRequest) {
   const lomax = searchParams.get('lomax') ?? '-60';
 
   try {
-    const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
-    const res = await fetch(url, { next: { revalidate: 15 } });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
-    if (!res.ok) {
-      return NextResponse.json({ error: 'OpenSky unavailable', states: [] }, { status: 200 });
-    }
+    const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
+    const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+    clearTimeout(timeout);
+
+    if (!res.ok) throw new Error('OpenSky non-200');
 
     const data = await res.json();
-
-    // Map OpenSky state vectors to a friendly shape
-    // columns: icao24, callsign, origin_country, time_position, last_contact,
-    //          longitude, latitude, baro_altitude, on_ground, velocity,
-    //          true_track, vertical_rate, sensors, geo_altitude, squawk,
-    //          spi, position_source
     const flights = (data.states ?? [])
       .filter((s: unknown[]) => s[5] !== null && s[6] !== null && s[1])
       .map((s: unknown[]) => ({
@@ -35,17 +31,29 @@ export async function GET(req: NextRequest) {
         originCountry: s[2],
         longitude: s[5],
         latitude: s[6],
-        baroAltitude: s[7] ? Math.round((s[7] as number) * 3.28084) : null, // m→ft
+        baroAltitude: s[7] ? Math.round((s[7] as number) * 3.28084) : null,
         onGround: s[8],
-        velocity: s[9] ? Math.round((s[9] as number) * 1.94384) : null,     // m/s→kts
+        velocity: s[9] ? Math.round((s[9] as number) * 1.94384) : null,
         trueTrack: s[10],
         verticalRate: s[11],
         squawk: s[14],
       }))
-      .slice(0, 200); // limit to 200 aircraft
+      .slice(0, 200);
 
-    return NextResponse.json({ time: data.time, flights });
+    return NextResponse.json({ source: 'opensky', time: data.time, flights });
   } catch {
-    return NextResponse.json({ error: 'Fetch failed', states: [] }, { status: 200 });
+    // Fallback: live simulation with positions that update every poll cycle
+    const la = parseFloat(lamin), lb = parseFloat(lamax);
+    const lo = parseFloat(lomin), lx = parseFloat(lomax);
+    const all = generateLiveFlights(180);
+    const filtered = all.filter(f =>
+      f.latitude >= la && f.latitude <= lb &&
+      f.longitude >= lo && f.longitude <= lx
+    );
+    return NextResponse.json({
+      source: 'simulation',
+      time: Math.floor(Date.now() / 1000),
+      flights: filtered.length > 0 ? filtered : all.slice(0, 60),
+    });
   }
 }

@@ -1,40 +1,32 @@
 // FAA NAS Status — free public API, no key needed
-// Returns real-time airport delays, ground stops, and ground delay programs
+// Falls back to live simulation when unreachable
 import { NextRequest, NextResponse } from 'next/server';
+import { generateAirportStatus } from '@/lib/simData';
 
 export const runtime = 'nodejs';
-export const revalidate = 60;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const airport = searchParams.get('airport'); // optional: specific airport IATA code
+  const airport = searchParams.get('airport');
 
   try {
-    // FAA public airport status endpoint
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const base = airport
       ? `https://nasstatus.faa.gov/api/airport-status-information?Airport=${airport}`
       : `https://nasstatus.faa.gov/api/airport-status-information`;
 
     const res = await fetch(base, {
       headers: { Accept: 'application/json' },
-      next: { revalidate: 60 },
+      signal: controller.signal,
+      cache: 'no-store',
     });
+    clearTimeout(timeout);
 
-    if (!res.ok) {
-      // Fallback: try the older FAA Aviation system status endpoint
-      const fallback = await fetch('https://soa.smext.faa.gov/asws/api/airport/status/JFK', {
-        headers: { Accept: 'application/json' },
-      });
-      if (fallback.ok) {
-        const d = await fallback.json();
-        return NextResponse.json({ source: 'faa-asws', data: [d] });
-      }
-      return NextResponse.json({ error: 'FAA status unavailable', data: [] }, { status: 200 });
-    }
-
+    if (!res.ok) throw new Error('FAA non-200');
     const data = await res.json();
     return NextResponse.json({ source: 'faa-nas', data });
   } catch {
-    return NextResponse.json({ error: 'Fetch failed', data: [] }, { status: 200 });
+    return NextResponse.json({ source: 'simulation', data: generateAirportStatus() });
   }
 }

@@ -3,7 +3,9 @@ import { useEffect, useState, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import AlertTicker from '@/components/AlertTicker';
-import { AlertTriangle, CloudLightning, Wind, Eye, Thermometer, Info } from 'lucide-react';
+import AnimatedCounter from '@/components/AnimatedCounter';
+import DataSourceBadge from '@/components/DataSourceBadge';
+import { AlertTriangle, CloudLightning, Wind, Eye, Thermometer, Info, MapPin } from 'lucide-react';
 
 interface SigmetEntry {
   icaoId?: string;
@@ -87,26 +89,39 @@ function formatTime(iso?: string) {
   try { return new Date(iso).toUTCString().slice(0, 25) + 'Z'; } catch { return iso; }
 }
 
+interface NWSAlert {
+  id: string; event?: string; headline?: string; area?: string;
+  severity?: string; urgency?: string; description?: string;
+  onset?: string; expires?: string; affectedAirports?: string[];
+}
+
 export default function AlertsPage() {
   const [sigmets, setSigmets] = useState<SigmetEntry[]>([]);
   const [airmets, setAirmets] = useState<AirmetEntry[]>([]);
   const [pireps, setPireps] = useState<PirepEntry[]>([]);
   const [airportStatus, setAirportStatus] = useState<AirportStatusEntry[]>([]);
-  const [tab, setTab] = useState<'programs' | 'sigmets' | 'airmets' | 'pireps'>('programs');
+  const [nwsAlerts, setNwsAlerts] = useState<NWSAlert[]>([]);
+  const [tab, setTab] = useState<'programs' | 'nws' | 'sigmets' | 'airmets' | 'pireps'>('programs');
+  const [source, setSource] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [sRes, aRes, pRes, stRes] = await Promise.all([
+      const [sRes, aRes, pRes, stRes, nRes] = await Promise.all([
         fetch('/api/notams?type=sigmet'),
         fetch('/api/notams?type=airmet'),
         fetch('/api/notams?type=pirep'),
         fetch('/api/airport-status'),
+        fetch('/api/nws-alerts'),
       ]);
-      const [sJson, aJson, pJson, stJson] = await Promise.all([sRes.json(), aRes.json(), pRes.json(), stRes.json()]);
+      const [sJson, aJson, pJson, stJson, nJson] = await Promise.all([
+        sRes.json(), aRes.json(), pRes.json(), stRes.json(), nRes.json(),
+      ]);
       setSigmets(Array.isArray(sJson.data) ? sJson.data : []);
       setAirmets(Array.isArray(aJson.data) ? aJson.data : []);
+      setNwsAlerts(Array.isArray(nJson.data) ? nJson.data : []);
+      setSource(nJson.source ?? '');
       setPireps(Array.isArray(pJson.data) ? pJson.data.slice(0, 50) : []);
       setAirportStatus(Array.isArray(stJson.data) ? stJson.data : []);
     } catch { /* silent */ }
@@ -121,11 +136,15 @@ export default function AlertsPage() {
 
   const activePrograms = airportStatus.filter(a => (a.Delays?.length ?? 0) > 0 || (a.Programs?.length ?? 0) > 0);
   const tabs = [
-    { key: 'programs', label: 'FAA Programs', count: activePrograms.length, color: '#ef4444' },
-    { key: 'sigmets', label: 'SIGMETs', count: sigmets.length, color: '#f59e0b' },
-    { key: 'airmets', label: 'AIRMETs', count: airmets.length, color: '#3b82f6' },
-    { key: 'pireps', label: 'PIREPs', count: pireps.length, color: '#10b981' },
+    { key: 'programs', label: 'FAA Programs',  count: activePrograms.length, color: '#ef4444' },
+    { key: 'nws',      label: 'NWS Alerts',    count: nwsAlerts.length,      color: '#f97316' },
+    { key: 'sigmets',  label: 'SIGMETs',       count: sigmets.length,        color: '#f59e0b' },
+    { key: 'airmets',  label: 'AIRMETs',       count: airmets.length,        color: '#3b82f6' },
+    { key: 'pireps',   label: 'PIREPs',        count: pireps.length,         color: '#10b981' },
   ] as const;
+
+  const sevColor = (s?: string) =>
+    s === 'Extreme' ? '#f87171' : s === 'Severe' ? '#fb923c' : s === 'Moderate' ? '#fbbf24' : '#60a5fa';
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
@@ -134,18 +153,22 @@ export default function AlertsPage() {
         <AlertTicker />
         <Header
           title="Alerts & Disruptions"
-          subtitle="FAA NAS Programs · SIGMETs · AIRMETs · PIREPs — All live data"
+          subtitle="FAA NAS · NWS Weather Alerts · SIGMETs · AIRMETs · PIREPs"
           onRefresh={load}
           refreshing={refreshing}
         />
         <main className="flex-1 overflow-y-auto p-6 grid-bg">
 
           {/* Summary KPIs */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            {tabs.map(t => (
-              <div key={t.key} className="card p-4 cursor-pointer transition-all" style={{ border: tab === t.key ? `1px solid ${t.color}40` : '1px solid var(--border)', boxShadow: tab === t.key ? `0 0 20px ${t.color}20` : 'none' }}
-                onClick={() => setTab(t.key)}>
-                <div className="text-2xl font-bold mb-1" style={{ color: t.color }}>{t.count}</div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+            {tabs.map((t, i) => (
+              <div
+                key={t.key}
+                className={`card p-4 cursor-pointer transition-all fade-in-${i+1}`}
+                style={{ border: tab === t.key ? `1px solid ${t.color}40` : '1px solid var(--border)', boxShadow: tab === t.key ? `0 0 20px ${t.color}20` : 'none' }}
+                onClick={() => setTab(t.key)}
+              >
+                <AnimatedCounter value={t.count} className="text-2xl font-bold mb-1" style={{ color: t.color }} />
                 <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{t.label}</div>
               </div>
             ))}
@@ -173,6 +196,64 @@ export default function AlertsPage() {
               </button>
             ))}
           </div>
+
+          {/* NWS Weather Alerts */}
+          {tab === 'nws' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>National Weather Service active aviation alerts</span>
+                <DataSourceBadge source={source} />
+              </div>
+              {nwsAlerts.length > 0 ? nwsAlerts.map((a, i) => {
+                const sc = sevColor(a.severity);
+                return (
+                  <div key={i} className="card p-5 slide-in-right" style={{ border: `1px solid ${sc}25`, animationDelay: `${i * 50}ms` }}>
+                    <div className="flex items-start justify-between gap-4 mb-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <AlertTriangle size={15} style={{ color: sc }} />
+                          <span className="font-bold text-sm" style={{ color: sc }}>{a.event}</span>
+                          <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: `${sc}15`, color: sc, border: `1px solid ${sc}30` }}>
+                            {a.severity}
+                          </span>
+                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{a.urgency}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          <MapPin size={11} />
+                          {a.area}
+                        </div>
+                      </div>
+                      <div className="text-xs text-right shrink-0" style={{ color: 'var(--text-muted)' }}>
+                        {a.expires && <div>Expires {new Date(a.expires).toLocaleTimeString()}</div>}
+                      </div>
+                    </div>
+                    {a.headline && (
+                      <div className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>{a.headline}</div>
+                    )}
+                    {a.description && (
+                      <div className="text-xs p-3 rounded-xl" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                        {a.description}
+                      </div>
+                    )}
+                    {a.affectedAirports && a.affectedAirports.length > 0 && (
+                      <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Affected airports:</span>
+                        {a.affectedAirports.map(ap => (
+                          <span key={ap} className="font-mono text-xs px-2 py-0.5 rounded badge-yellow">{ap}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }) : (
+                <div className="card p-8 text-center">
+                  <div className="text-3xl mb-3">✅</div>
+                  <div className="font-semibold" style={{ color: 'var(--text-primary)' }}>No Active NWS Alerts</div>
+                  <div className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>No NWS weather alerts affecting aviation at this time</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* FAA Delay Programs */}
           {tab === 'programs' && (

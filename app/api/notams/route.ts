@@ -1,35 +1,34 @@
-// AviationWeather.gov NOTAM-like data — Pilot Weather Reports + Sigmets/Airmets
-// Also fetches Sigmets which are safety-critical weather advisories for pilots
+// AviationWeather.gov — SIGMETs, AIRMETs, PIREPs
+// Falls back to live simulation when unreachable
 import { NextRequest, NextResponse } from 'next/server';
+import { generateSIGMETs, generateAIRMETs, generatePIREPs } from '@/lib/simData';
 
 export const runtime = 'nodejs';
-export const revalidate = 120;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const type = searchParams.get('type') ?? 'sigmet'; // sigmet | airmet | pirep
+  const type = searchParams.get('type') ?? 'sigmet';
+
+  const urls: Record<string, string> = {
+    sigmet: 'https://aviationweather.gov/api/data/sigmet?format=json',
+    airmet: 'https://aviationweather.gov/api/data/airmet?format=json',
+    pirep:  'https://aviationweather.gov/api/data/pirep?format=json&age=3&distance=200',
+  };
 
   try {
-    let url = '';
-    if (type === 'sigmet') {
-      url = 'https://aviationweather.gov/api/data/sigmet?format=json';
-    } else if (type === 'airmet') {
-      url = 'https://aviationweather.gov/api/data/airmet?format=json';
-    } else if (type === 'pirep') {
-      url = 'https://aviationweather.gov/api/data/pirep?format=json&age=3&distance=200';
-    } else {
-      url = 'https://aviationweather.gov/api/data/sigmet?format=json';
-    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(urls[type] ?? urls.sigmet, { signal: controller.signal, cache: 'no-store' });
+    clearTimeout(timeout);
 
-    const res = await fetch(url, { next: { revalidate: 120 } });
-
-    if (!res.ok) {
-      return NextResponse.json({ error: 'AviationWeather unavailable', data: [] }, { status: 200 });
-    }
-
+    if (!res.ok) throw new Error('AviationWeather non-200');
     const data = await res.json();
-    return NextResponse.json({ data });
+    return NextResponse.json({ source: 'aviationweather', data });
   } catch {
-    return NextResponse.json({ error: 'Fetch failed', data: [] }, { status: 200 });
+    const fallback =
+      type === 'airmet' ? generateAIRMETs() :
+      type === 'pirep'  ? generatePIREPs() :
+                          generateSIGMETs();
+    return NextResponse.json({ source: 'simulation', data: fallback });
   }
 }
